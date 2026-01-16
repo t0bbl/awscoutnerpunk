@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import type { GameState, Unit, Vector2, PlayerAction } from 'shared';
-import { GamePhase, ActionType, Simulation, WEAPON_STATS, TICK_DURATION_S, WeaponType, EXECUTION_PHASE_TICKS, UNIT_MOVE_SPEED } from 'shared';
+import { GamePhase, ActionType, Simulation, WEAPON_STATS, TICK_DURATION_S, WeaponType, EXECUTION_PHASE_TICKS } from 'shared';
 import { TimelineUI_v2 } from '../ui/TimelineUI';
+import { ActionManager } from '../managers/ActionManager';
 
 export class GameScene extends Phaser.Scene {
   private unitSprites: Map<string, Phaser.GameObjects.Container> = new Map();
@@ -10,7 +11,7 @@ export class GameScene extends Phaser.Scene {
   private camera!: Phaser.Cameras.Scene2D.Camera;
   private uiText!: Phaser.GameObjects.Text;
   private selectedUnit: string | null = null;
-  private plannedActions: Map<string, PlayerAction[]> = new Map(); // Changed to array for multiple actions
+  private actionManager: ActionManager = new ActionManager();
   private movementPreviewGraphics!: Phaser.GameObjects.Graphics;
   private shootingPreviewGraphics!: Phaser.GameObjects.Graphics;
   private readyButton!: Phaser.GameObjects.Text;
@@ -21,8 +22,6 @@ export class GameScene extends Phaser.Scene {
   private executionTime: number = 0;
   private effectsGraphics!: Phaser.GameObjects.Graphics;
   private previousUnitStates: Map<string, { magazineAmmo: number, health: number }> = new Map();
-  private actionProgress: Map<string, number> = new Map(); // Track which action index each unit is on
-  private previousActionStates: Map<string, { magazineAmmo: number }> = new Map(); // For action completion detection
 
   constructor() {
     super({ key: 'GameScene' });
@@ -89,7 +88,6 @@ export class GameScene extends Phaser.Scene {
     
     // Set playerId for local testing if not connected
     this.playerId = network?.getPlayerId() || 'player1';
-    console.log('Player ID:', this.playerId);
 
     // Listen for game state updates
     if (network) {
@@ -98,7 +96,6 @@ export class GameScene extends Phaser.Scene {
       };
 
       network.onMatchStart = (matchId: string, state: GameState) => {
-        console.log('Match started:', matchId);
         this.handleGameStateUpdate(state);
       };
     }
@@ -161,8 +158,6 @@ export class GameScene extends Phaser.Scene {
         this.createTestUnit('p2_unit3', enemyPlayerId, { x: 1000, y: 600 }),
       ],
     };
-
-    console.log('Test state created with friendly units for:', friendlyPlayerId);
     
     // Enable local test mode
     this.isLocalTest = true;
@@ -218,14 +213,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getLastActionsForTimeline(): Map<string, PlayerAction> {
-    // Timeline expects single action per unit, so just show the last one
-    const result = new Map<string, PlayerAction>();
-    this.plannedActions.forEach((actions, unitId) => {
-      if (actions.length > 0) {
-        result.set(unitId, actions[actions.length - 1]);
-      }
-    });
-    return result;
+    return this.actionManager.getLastActions();
   }
 
   private updateUnits(state: GameState) {
@@ -322,7 +310,7 @@ export class GameScene extends Phaser.Scene {
     const body = container.getData('body') as Phaser.GameObjects.Arc;
     if (this.selectedUnit === unit.id) {
       body.setStrokeStyle(3, 0xffff00);
-    } else if (this.plannedActions.has(unit.id)) {
+    } else if (this.actionManager.hasActions(unit.id)) {
       body.setStrokeStyle(3, 0x00aaff); // Blue for units with planned actions
     } else {
       body.setStrokeStyle(2, 0xffffff);
@@ -334,7 +322,7 @@ export class GameScene extends Phaser.Scene {
                       state.phase === GamePhase.EXECUTION ? 'EXECUTION' : 'ROUND END';
     
     const aliveUnits = state.units.filter(u => u.isAlive).length;
-    const plannedCount = this.plannedActions.size;
+    const plannedCount = this.actionManager.getAllActions().size;
     
     const lines = [
       `Phase: ${phaseText}`,
@@ -372,11 +360,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleClick(worldX: number, worldY: number) {
-    console.log(`Click at (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`);
-    
     // Only allow planning during planning phase
     if (this.currentState?.phase !== GamePhase.PLANNING) {
-      console.log('Not in planning phase');
       return;
     }
 
@@ -392,7 +377,6 @@ export class GameScene extends Phaser.Scene {
 
       if (Phaser.Geom.Circle.Contains(bounds, worldX, worldY)) {
         clickedUnit = id;
-        console.log(`Hit unit: ${id} at (${container.x}, ${container.y})`);
       }
     });
 
@@ -401,9 +385,6 @@ export class GameScene extends Phaser.Scene {
       const unit = this.currentState?.units.find(u => u.id === clickedUnit);
       if (unit && unit.playerId === this.playerId) {
         this.selectedUnit = clickedUnit;
-        console.log('Selected unit:', clickedUnit);
-      } else {
-        console.log('Cannot select enemy unit');
       }
       
       // Force update to show selection
@@ -423,10 +404,8 @@ export class GameScene extends Phaser.Scene {
             targetPosition: { x: worldX, y: worldY },
           };
           
-          // Add to array of actions
-          const existing = this.plannedActions.get(this.selectedUnit) || [];
-          existing.push(action);
-          this.plannedActions.set(this.selectedUnit, existing);
+          // Add to action manager
+          this.actionManager.addAction(this.selectedUnit, action);
           
           this.drawMovementPreviews();
           this.drawShootingPreviews();
@@ -455,7 +434,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.currentState) return;
 
     // Draw planned movements
-    this.plannedActions.forEach((actions, unitId) => {
+    this.actionManager.getAllActions().forEach((actions, unitId) => {
       const unit = this.currentState!.units.find(u => u.id === unitId);
       if (!unit) return;
 
@@ -506,19 +485,12 @@ export class GameScene extends Phaser.Scene {
   private handleReadyButton() {
     if (this.currentState?.phase !== GamePhase.PLANNING) return;
 
-    console.log('Ready! Planned actions:', this.plannedActions);
-
     if (this.isLocalTest && this.localSimulation) {
       // Local test mode - run simulation locally
-      console.log('Running local simulation...');
       
-      // Reset execution time and action progress
+      // Reset execution time and initialize action manager
       this.executionTime = 0;
-      this.actionProgress.clear();
-      this.previousActionStates.clear();
-      this.plannedActions.forEach((actions, unitId) => {
-        this.actionProgress.set(unitId, 0); // Start at first action
-      });
+      this.actionManager.startExecution();
       
       // Switch simulation to execution phase
       this.localSimulation.setPhase(GamePhase.EXECUTION);
@@ -554,16 +526,29 @@ export class GameScene extends Phaser.Scene {
         this.executionTime += TICK_DURATION_S;
 
         // Get current actions for each unit based on their progress
-        const currentActions = this.getCurrentActions();
+        const currentActions = this.actionManager.getCurrentActions();
         
         // Capture state BEFORE tick for shoot action completion detection
-        this.capturePreTickState(currentActions);
+        if (this.currentState) {
+          this.actionManager.capturePreTickState(currentActions, this.currentState);
+        }
+        
+        // Reset hasShot flags for shoot actions
+        currentActions.forEach(action => {
+          if (action.actionType === ActionType.SHOOT && this.localSimulation) {
+            const simState = this.localSimulation.getState();
+            const unit = simState.units.find(u => u.id === action.unitId);
+            if (unit?.hasShot) {
+              this.localSimulation.resetUnitHasShot(action.unitId);
+            }
+          }
+        });
         
         // Pass current actions to simulation
         const newState = this.localSimulation.tick(currentActions);
         
         // Update action progress based on completion
-        this.updateActionProgress(newState);
+        this.actionManager.updateProgress(newState);
         
         // Detect and visualize shooting (this updates previousUnitStates)
         this.detectShooting(newState);
@@ -576,12 +561,9 @@ export class GameScene extends Phaser.Scene {
         if (tickCount >= maxTicks || newState.phase !== GamePhase.EXECUTION) {
           clearInterval(tickInterval);
           
-          // Reset execution time and action progress
+          // Reset execution time and clear actions
           this.executionTime = 0;
-          this.actionProgress.clear();
-          
-          // Clear planned actions now that execution is done
-          this.plannedActions.clear();
+          this.actionManager.clear();
           this.drawMovementPreviews();
           this.drawShootingPreviews();
           
@@ -596,7 +578,7 @@ export class GameScene extends Phaser.Scene {
       // Online mode - send to server
       const network = (window as any).network;
       if (network) {
-        this.plannedActions.forEach(actions => {
+        this.actionManager.getAllActions().forEach(actions => {
           actions.forEach(action => {
             network.sendAction(action);
           });
@@ -605,7 +587,7 @@ export class GameScene extends Phaser.Scene {
       }
       
       // Clear planned actions only in online mode
-      this.plannedActions.clear();
+      this.actionManager.clear();
       this.drawMovementPreviews();
       
       if (this.currentState) {
@@ -626,16 +608,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleRightClick(worldX: number, worldY: number) {
-    console.log(`Right click at (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`);
-    
     // Only allow planning during planning phase
     if (this.currentState?.phase !== GamePhase.PLANNING) {
-      console.log('Not in planning phase');
       return;
     }
 
     if (!this.selectedUnit) {
-      console.log('No unit selected');
       return;
     }
 
@@ -661,10 +639,8 @@ export class GameScene extends Phaser.Scene {
           targetUnitId: clickedUnit,
         };
         
-        // Add to array of actions
-        const existing = this.plannedActions.get(this.selectedUnit) || [];
-        existing.push(action);
-        this.plannedActions.set(this.selectedUnit, existing);
+        // Add to action manager
+        this.actionManager.addAction(this.selectedUnit, action);
         
         this.drawShootingPreviews();
         this.drawMovementPreviews();
@@ -678,11 +654,8 @@ export class GameScene extends Phaser.Scene {
             this.timeline.update(this.executionTime, this.getLastActionsForTimeline(), this.currentState);
           }
         }
-      } else {
-        console.log('Cannot shoot friendly unit');
       }
     } else {
-      console.log('Clicked empty space while unit selected');
       // Don't deselect - keep selection sticky
     }
   }
@@ -712,7 +685,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.currentState) return;
 
     // Draw planned shooting actions
-    this.plannedActions.forEach((actions, unitId) => {
+    this.actionManager.getAllActions().forEach((actions, unitId) => {
       const shooter = this.currentState!.units.find(u => u.id === unitId);
       if (!shooter) return;
 
@@ -892,87 +865,4 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private getCurrentActions(): PlayerAction[] {
-    const currentActions: PlayerAction[] = [];
-    
-    this.plannedActions.forEach((actions, unitId) => {
-      const actionIndex = this.actionProgress.get(unitId) || 0;
-      
-      if (actionIndex < actions.length) {
-        const action = actions[actionIndex];
-        currentActions.push(action);
-      }
-    });
-    
-    return currentActions;
-  }
-
-  private capturePreTickState(currentActions: PlayerAction[]) {
-    if (!this.localSimulation) return;
-    
-    // Get the simulation's current state for reading
-    const simState = this.localSimulation.getState();
-    
-    // For each shoot action, capture the current ammo BEFORE the tick
-    currentActions.forEach(action => {
-      if (action.actionType === ActionType.SHOOT) {
-        const unit = simState.units.find(u => u.id === action.unitId);
-        if (unit) {
-          // Capture state if not already captured
-          if (!this.previousActionStates.has(action.unitId)) {
-            this.previousActionStates.set(action.unitId, {
-              magazineAmmo: unit.magazineAmmo
-            });
-          }
-          
-          // Reset hasShot flag in the simulation so unit can shoot again
-          if (unit.hasShot && this.localSimulation) {
-            this.localSimulation.resetUnitHasShot(action.unitId);
-          }
-        }
-      }
-    });
-  }
-
-  private updateActionProgress(newState: GameState) {
-    if (!this.currentState) return;
-    
-    this.plannedActions.forEach((actions, unitId) => {
-      const actionIndex = this.actionProgress.get(unitId) || 0;
-      if (actionIndex >= actions.length) return; // All actions complete
-      
-      const currentAction = actions[actionIndex];
-      const unit = newState.units.find(u => u.id === unitId);
-      if (!unit) return;
-      
-      let actionComplete = false;
-      
-      // Check if current action is complete
-      if (currentAction.actionType === ActionType.MOVE && currentAction.targetPosition) {
-        // Movement complete when unit reaches target (within 2 steps for safety)
-        const distance = Math.sqrt(
-          Math.pow(unit.position.x - currentAction.targetPosition.x, 2) +
-          Math.pow(unit.position.y - currentAction.targetPosition.y, 2)
-        );
-        actionComplete = distance < (UNIT_MOVE_SPEED * 2);
-      } else if (currentAction.actionType === ActionType.SHOOT) {
-        // Shooting complete when unit has shot (check ammo decrease)
-        const prevState = this.previousActionStates.get(unitId);
-        
-        if (prevState) {
-          const didShoot = prevState.magazineAmmo > unit.magazineAmmo;
-          actionComplete = didShoot;
-        }
-      }
-      
-      if (actionComplete) {
-        // Move to next action
-        const nextIndex = actionIndex + 1;
-        this.actionProgress.set(unitId, nextIndex);
-        
-        // Clear previous action state - will be recaptured for next shoot action
-        this.previousActionStates.delete(unitId);
-      }
-    });
-  }
 }
