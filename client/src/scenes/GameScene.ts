@@ -511,7 +511,6 @@ export class GameScene extends Phaser.Scene {
     if (this.isLocalTest && this.localSimulation) {
       // Local test mode - run simulation locally
       console.log('Running local simulation...');
-      console.log('Planned actions:', this.plannedActions);
       
       // Reset execution time and action progress
       this.executionTime = 0;
@@ -519,17 +518,7 @@ export class GameScene extends Phaser.Scene {
       this.previousActionStates.clear();
       this.plannedActions.forEach((actions, unitId) => {
         this.actionProgress.set(unitId, 0); // Start at first action
-        console.log(`${unitId}: ${actions.length} actions planned`);
       });
-      
-      // Initialize action states
-      if (this.currentState) {
-        this.currentState.units.forEach(unit => {
-          this.previousActionStates.set(unit.id, {
-            magazineAmmo: unit.magazineAmmo
-          });
-        });
-      }
       
       // Switch simulation to execution phase
       this.localSimulation.setPhase(GamePhase.EXECUTION);
@@ -567,20 +556,17 @@ export class GameScene extends Phaser.Scene {
         // Get current actions for each unit based on their progress
         const currentActions = this.getCurrentActions();
         
+        // Capture state BEFORE tick for shoot action completion detection
+        this.capturePreTickState(currentActions);
+        
         // Pass current actions to simulation
         const newState = this.localSimulation.tick(currentActions);
         
-        // Update action progress based on completion (BEFORE updating previousUnitStates)
+        // Update action progress based on completion
         this.updateActionProgress(newState);
         
         // Detect and visualize shooting (this updates previousUnitStates)
         this.detectShooting(newState);
-        
-        if (tickCount % 10 === 0) { // Log every 10 ticks
-          console.log(`Tick ${tickCount}: Unit positions:`, 
-            newState.units.map(u => ({ id: u.id, x: u.position.x.toFixed(0), y: u.position.y.toFixed(0), hp: u.health, alive: u.isAlive }))
-          );
-        }
         
         this.handleGameStateUpdate(newState);
         
@@ -589,7 +575,6 @@ export class GameScene extends Phaser.Scene {
         // Stop after max ticks or if phase changed
         if (tickCount >= maxTicks || newState.phase !== GamePhase.EXECUTION) {
           clearInterval(tickInterval);
-          console.log('Execution complete at tick', tickCount);
           
           // Reset execution time and action progress
           this.executionTime = 0;
@@ -912,19 +897,41 @@ export class GameScene extends Phaser.Scene {
     
     this.plannedActions.forEach((actions, unitId) => {
       const actionIndex = this.actionProgress.get(unitId) || 0;
-      console.log(`getCurrentActions: ${unitId} at index ${actionIndex}/${actions.length}`);
       
       if (actionIndex < actions.length) {
         const action = actions[actionIndex];
         currentActions.push(action);
-        console.log(`  -> Adding action: ${action.actionType}`, action);
-      } else {
-        console.log(`  -> All actions complete`);
       }
     });
     
-    console.log(`getCurrentActions returning ${currentActions.length} actions`);
     return currentActions;
+  }
+
+  private capturePreTickState(currentActions: PlayerAction[]) {
+    if (!this.localSimulation) return;
+    
+    // Get the simulation's current state for reading
+    const simState = this.localSimulation.getState();
+    
+    // For each shoot action, capture the current ammo BEFORE the tick
+    currentActions.forEach(action => {
+      if (action.actionType === ActionType.SHOOT) {
+        const unit = simState.units.find(u => u.id === action.unitId);
+        if (unit) {
+          // Capture state if not already captured
+          if (!this.previousActionStates.has(action.unitId)) {
+            this.previousActionStates.set(action.unitId, {
+              magazineAmmo: unit.magazineAmmo
+            });
+          }
+          
+          // Reset hasShot flag in the simulation so unit can shoot again
+          if (unit.hasShot && this.localSimulation) {
+            this.localSimulation.resetUnitHasShot(action.unitId);
+          }
+        }
+      }
+    });
   }
 
   private updateActionProgress(newState: GameState) {
@@ -948,20 +955,13 @@ export class GameScene extends Phaser.Scene {
           Math.pow(unit.position.y - currentAction.targetPosition.y, 2)
         );
         actionComplete = distance < (UNIT_MOVE_SPEED * 2);
-        
-        if (actionComplete) {
-          console.log(`${unitId} reached waypoint ${actionIndex} (distance: ${distance.toFixed(1)})`);
-        }
       } else if (currentAction.actionType === ActionType.SHOOT) {
         // Shooting complete when unit has shot (check ammo decrease)
         const prevState = this.previousActionStates.get(unitId);
+        
         if (prevState) {
           const didShoot = prevState.magazineAmmo > unit.magazineAmmo;
           actionComplete = didShoot;
-          
-          if (actionComplete) {
-            console.log(`${unitId} completed shot ${actionIndex}`);
-          }
         }
       }
       
@@ -970,22 +970,9 @@ export class GameScene extends Phaser.Scene {
         const nextIndex = actionIndex + 1;
         this.actionProgress.set(unitId, nextIndex);
         
-        if (nextIndex < actions.length) {
-          console.log(`${unitId} advancing to action ${nextIndex}/${actions.length}`);
-        } else {
-          console.log(`${unitId} completed all ${actions.length} actions`);
-        }
-        
-        // Reset hasShot flag so unit can shoot again
-        if (currentAction.actionType === ActionType.SHOOT) {
-          unit.hasShot = false;
-        }
+        // Clear previous action state - will be recaptured for next shoot action
+        this.previousActionStates.delete(unitId);
       }
-      
-      // Update previous action state for next tick
-      this.previousActionStates.set(unitId, {
-        magazineAmmo: unit.magazineAmmo
-      });
     });
   }
 }
