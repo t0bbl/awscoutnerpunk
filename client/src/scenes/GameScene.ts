@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { GameState, Unit, Vector2, PlayerAction } from 'shared';
-import { GamePhase, ActionType, Simulation } from 'shared';
+import { GamePhase, ActionType, Simulation, WEAPON_STATS } from 'shared';
 
 export class GameScene extends Phaser.Scene {
   private unitSprites: Map<string, Phaser.GameObjects.Container> = new Map();
@@ -11,9 +11,11 @@ export class GameScene extends Phaser.Scene {
   private selectedUnit: string | null = null;
   private plannedActions: Map<string, PlayerAction> = new Map();
   private movementPreviewGraphics!: Phaser.GameObjects.Graphics;
+  private shootingPreviewGraphics!: Phaser.GameObjects.Graphics;
   private readyButton!: Phaser.GameObjects.Text;
   private isLocalTest: boolean = false;
   private localSimulation: Simulation | null = null;
+  private hoveredUnit: string | null = null;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -35,6 +37,10 @@ export class GameScene extends Phaser.Scene {
     // Graphics for movement preview
     this.movementPreviewGraphics = this.add.graphics();
     this.movementPreviewGraphics.setDepth(5);
+
+    // Graphics for shooting preview
+    this.shootingPreviewGraphics = this.add.graphics();
+    this.shootingPreviewGraphics.setDepth(6);
 
     // UI Text
     this.uiText = this.add.text(10, 10, 'Connecting...', {
@@ -85,7 +91,15 @@ export class GameScene extends Phaser.Scene {
 
     // Input handling
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      this.handleClick(pointer.worldX, pointer.worldY);
+      if (pointer.rightButtonDown()) {
+        this.handleRightClick(pointer.worldX, pointer.worldY);
+      } else {
+        this.handleClick(pointer.worldX, pointer.worldY);
+      }
+    });
+
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      this.handlePointerMove(pointer.worldX, pointer.worldY);
     });
 
     // Camera controls
@@ -161,6 +175,7 @@ export class GameScene extends Phaser.Scene {
     this.updateUnits(state);
     this.updateUI(state);
     this.drawMovementPreviews();
+    this.drawShootingPreviews();
   }
 
   private updateUnits(state: GameState) {
@@ -271,13 +286,30 @@ export class GameScene extends Phaser.Scene {
     const aliveUnits = state.units.filter(u => u.isAlive).length;
     const plannedCount = this.plannedActions.size;
     
-    this.uiText.setText([
+    const lines = [
       `Phase: ${phaseText}`,
       `Round: ${state.round} | Tick: ${state.tick}`,
       `Units Alive: ${aliveUnits}`,
       `Planned Actions: ${plannedCount}`,
-      this.selectedUnit ? `Selected: ${this.selectedUnit}` : '',
-    ].filter(Boolean).join('\n'));
+    ];
+
+    if (this.selectedUnit) {
+      const unit = state.units.find(u => u.id === this.selectedUnit);
+      if (unit) {
+        lines.push(`Selected: ${this.selectedUnit} (HP: ${unit.health})`);
+      }
+    }
+
+    if (this.hoveredUnit && this.selectedUnit) {
+      const shooter = state.units.find(u => u.id === this.selectedUnit);
+      const target = state.units.find(u => u.id === this.hoveredUnit);
+      if (shooter && target && shooter.playerId !== target.playerId) {
+        const hitChance = this.calculateHitChance(shooter, target);
+        lines.push(`Hit Chance: ${(hitChance * 100).toFixed(0)}%`);
+      }
+    }
+    
+    this.uiText.setText(lines.filter(Boolean).join('\n'));
 
     // Show/hide ready button based on phase
     this.readyButton.setVisible(state.phase === GamePhase.PLANNING);
@@ -463,6 +495,147 @@ export class GameScene extends Phaser.Scene {
       const newZoom = Phaser.Math.Clamp(this.camera.zoom + zoomAmount, 0.5, 2);
       this.camera.setZoom(newZoom);
     });
+  }
+
+  private handleRightClick(worldX: number, worldY: number) {
+    console.log(`Right click at (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`);
+    
+    // Only allow planning during planning phase
+    if (this.currentState?.phase !== GamePhase.PLANNING) {
+      console.log('Not in planning phase');
+      return;
+    }
+
+    if (!this.selectedUnit) {
+      console.log('No unit selected');
+      return;
+    }
+
+    // Check if clicked on an enemy unit
+    let clickedUnit: string | null = null;
+
+    this.unitSprites.forEach((container, id) => {
+      const bounds = new Phaser.Geom.Circle(container.x, container.y, 20);
+      if (Phaser.Geom.Circle.Contains(bounds, worldX, worldY)) {
+        clickedUnit = id;
+      }
+    });
+
+    if (clickedUnit) {
+      const shooter = this.currentState.units.find(u => u.id === this.selectedUnit);
+      const target = this.currentState.units.find(u => u.id === clickedUnit);
+
+      if (shooter && target && shooter.playerId !== target.playerId) {
+        console.log(`Planning shoot: ${this.selectedUnit} -> ${clickedUnit}`);
+        
+        // Create shoot action
+        const action: PlayerAction = {
+          unitId: this.selectedUnit,
+          actionType: ActionType.SHOOT,
+          targetUnitId: clickedUnit,
+        };
+        
+        this.plannedActions.set(this.selectedUnit, action);
+        this.drawShootingPreviews();
+        
+        if (this.currentState) {
+          this.updateUnits(this.currentState);
+          this.updateUI(this.currentState);
+        }
+      } else {
+        console.log('Cannot shoot friendly unit');
+      }
+    }
+  }
+
+  private handlePointerMove(worldX: number, worldY: number) {
+    if (!this.currentState) return;
+
+    // Find hovered unit
+    let hoveredUnit: string | null = null;
+
+    this.unitSprites.forEach((container, id) => {
+      const bounds = new Phaser.Geom.Circle(container.x, container.y, 20);
+      if (Phaser.Geom.Circle.Contains(bounds, worldX, worldY)) {
+        hoveredUnit = id;
+      }
+    });
+
+    if (hoveredUnit !== this.hoveredUnit) {
+      this.hoveredUnit = hoveredUnit;
+      this.updateUI(this.currentState);
+    }
+  }
+
+  private drawShootingPreviews() {
+    this.shootingPreviewGraphics.clear();
+
+    if (!this.currentState) return;
+
+    // Draw planned shooting actions
+    this.plannedActions.forEach((action, unitId) => {
+      if (action.actionType !== ActionType.SHOOT || !action.targetUnitId) return;
+
+      const shooter = this.currentState!.units.find(u => u.id === unitId);
+      const target = this.currentState!.units.find(u => u.id === action.targetUnitId);
+      
+      if (!shooter || !target) return;
+
+      // Draw line from shooter to target
+      this.shootingPreviewGraphics.lineStyle(2, 0xff0000, 0.8);
+      this.shootingPreviewGraphics.lineBetween(
+        shooter.position.x,
+        shooter.position.y,
+        target.position.x,
+        target.position.y
+      );
+
+      // Draw crosshair on target
+      const size = 10;
+      this.shootingPreviewGraphics.lineStyle(2, 0xff0000, 1);
+      this.shootingPreviewGraphics.lineBetween(
+        target.position.x - size,
+        target.position.y,
+        target.position.x + size,
+        target.position.y
+      );
+      this.shootingPreviewGraphics.lineBetween(
+        target.position.x,
+        target.position.y - size,
+        target.position.x,
+        target.position.y + size
+      );
+    });
+  }
+
+  private calculateHitChance(shooter: Unit, target: Unit): number {
+    const weaponStats = WEAPON_STATS[shooter.weapon];
+    const distance = Math.sqrt(
+      Math.pow(target.position.x - shooter.position.x, 2) +
+      Math.pow(target.position.y - shooter.position.y, 2)
+    );
+    
+    // Base accuracy from weapon
+    let accuracy = weaponStats.accuracy;
+    
+    // Distance penalty
+    const optimalRange = weaponStats.optimalRange;
+    if (distance > optimalRange) {
+      const rangePenalty = (distance - optimalRange) / optimalRange;
+      accuracy *= Math.max(0.3, 1 - rangePenalty * 0.5);
+    }
+    
+    // Movement penalty for shooter
+    if (shooter.isMoving) {
+      accuracy *= 0.5;
+    }
+    
+    // Movement bonus for target
+    if (target.isMoving) {
+      accuracy *= 0.7;
+    }
+    
+    return Math.max(0.05, Math.min(0.95, accuracy));
   }
 
   update(_time: number, _delta: number) {

@@ -16,7 +16,11 @@
    - Blue line shows planned path
    - Blue circle shows target position
    - Unit border turns blue when action is planned
-3. **READY Button** (top-right): Execute all planned actions
+3. **Right Click on Enemy Unit**: Plan to shoot that enemy
+   - Red line shows line of fire
+   - Red crosshair on target
+   - Hover over enemy to see hit chance
+4. **READY Button** (top-right): Execute all planned actions
 
 ### Execution Phase
 - Watch units execute their planned actions
@@ -45,9 +49,17 @@ Each unit shows:
 
 ## Planning Workflow
 
+**Movement:**
 1. Click a green (friendly) unit to select it
 2. Click where you want it to move
 3. Repeat for other units
+
+**Shooting:**
+1. Click a green unit to select it
+2. Right-click an enemy (red) unit to shoot
+3. Hover over enemies to see hit chance
+
+**Execute:**
 4. Click READY when done planning
 5. Watch execution phase
 
