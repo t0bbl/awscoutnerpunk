@@ -41,7 +41,7 @@ export class NetworkManager {
       case 'connected':
         this.playerId = data.playerId;
         console.log('Assigned player ID:', this.playerId);
-        if (this.onConnected) {
+        if (this.onConnected && this.playerId) {
           this.onConnected(this.playerId);
         }
         break;

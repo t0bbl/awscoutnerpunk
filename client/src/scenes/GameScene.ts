@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type { GameState, Unit, Vector2, PlayerAction } from 'shared';
-import { GamePhase, ActionType, Simulation, WEAPON_STATS } from 'shared';
+import { GamePhase, ActionType, Simulation, WEAPON_STATS, TICK_DURATION_S, WeaponType } from 'shared';
+import { TimelineUI_v2 } from '../ui/TimelineUI';
 
 export class GameScene extends Phaser.Scene {
   private unitSprites: Map<string, Phaser.GameObjects.Container> = new Map();
@@ -16,6 +17,8 @@ export class GameScene extends Phaser.Scene {
   private isLocalTest: boolean = false;
   private localSimulation: Simulation | null = null;
   private hoveredUnit: string | null = null;
+  private timeline: TimelineUI_v2 | null = null;
+  private executionTime: number = 0;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -108,6 +111,10 @@ export class GameScene extends Phaser.Scene {
     // Camera controls
     this.setupCameraControls();
 
+    // Create timeline UI
+    this.timeline = new TimelineUI_v2(this, 340, 650);
+    this.timeline.setVisible(false);
+
     // Create test state for local testing
     this.createTestState();
   }
@@ -156,7 +163,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createTestUnit(id: string, playerId: string, pos: Vector2): Unit {
-    const weapon = 'USP' as any;
+    const weapon: WeaponType = WeaponType.USP;
     const weaponStats = WEAPON_STATS[weapon];
     
     return {
@@ -188,6 +195,17 @@ export class GameScene extends Phaser.Scene {
     this.updateUI(state);
     this.drawMovementPreviews();
     this.drawShootingPreviews();
+    
+    // Update timeline
+    if (this.timeline) {
+      const showTimeline = state.phase === GamePhase.PLANNING || state.phase === GamePhase.EXECUTION;
+      this.timeline.setVisible(showTimeline);
+      
+      if (showTimeline) {
+        // Always pass current planned actions and state
+        this.timeline.update(this.executionTime, this.plannedActions, state);
+      }
+    }
   }
 
   private updateUnits(state: GameState) {
@@ -399,12 +417,18 @@ export class GameScene extends Phaser.Scene {
           
           this.drawMovementPreviews();
           this.drawShootingPreviews();
+          
+          // Update timeline
+          if (this.timeline && this.currentState) {
+            this.timeline.update(this.executionTime, this.plannedActions, this.currentState);
+          }
         }
       }
       
-      this.selectedUnit = null;
+      // Don't clear selection - keep it sticky
+      // this.selectedUnit = null;
       
-      // Force update to clear selection
+      // Force update to show changes
       if (this.currentState) {
         this.updateUnits(this.currentState);
         this.updateUI(this.currentState);
@@ -455,6 +479,9 @@ export class GameScene extends Phaser.Scene {
       // Local test mode - run simulation locally
       console.log('Running local simulation...');
       
+      // Reset execution time
+      this.executionTime = 0;
+      
       // Switch simulation to execution phase
       this.localSimulation.setPhase(GamePhase.EXECUTION);
       
@@ -478,6 +505,9 @@ export class GameScene extends Phaser.Scene {
           return;
         }
 
+        // Update execution time
+        this.executionTime += TICK_DURATION_S;
+
         // Pass actions every tick so movement continues
         const newState = this.localSimulation.tick(actions);
         
@@ -495,6 +525,9 @@ export class GameScene extends Phaser.Scene {
         if (tickCount >= maxTicks || newState.phase !== GamePhase.EXECUTION) {
           clearInterval(tickInterval);
           console.log('Execution complete at tick', tickCount);
+          
+          // Reset execution time
+          this.executionTime = 0;
           
           // Return to planning phase
           this.localSimulation.setPhase(GamePhase.PLANNING);
@@ -580,10 +613,18 @@ export class GameScene extends Phaser.Scene {
         if (this.currentState) {
           this.updateUnits(this.currentState);
           this.updateUI(this.currentState);
+          
+          // Update timeline with new actions
+          if (this.timeline) {
+            this.timeline.update(this.executionTime, this.plannedActions, this.currentState);
+          }
         }
       } else {
         console.log('Cannot shoot friendly unit');
       }
+    } else {
+      console.log('Clicked empty space while unit selected');
+      // Don't deselect - keep selection sticky
     }
   }
 
@@ -620,11 +661,20 @@ export class GameScene extends Phaser.Scene {
       
       if (!shooter || !target) return;
 
-      // Draw line from shooter to target
+      // Determine shooting position (after movement if move-and-shoot)
+      let shootFromX = shooter.position.x;
+      let shootFromY = shooter.position.y;
+      
+      if (action.moveBeforeAction && action.targetPosition) {
+        shootFromX = action.targetPosition.x;
+        shootFromY = action.targetPosition.y;
+      }
+
+      // Draw line from shooting position to target
       this.shootingPreviewGraphics.lineStyle(2, 0xff0000, 0.8);
       this.shootingPreviewGraphics.lineBetween(
-        shooter.position.x,
-        shooter.position.y,
+        shootFromX,
+        shootFromY,
         target.position.x,
         target.position.y
       );
