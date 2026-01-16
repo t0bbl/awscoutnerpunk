@@ -16,8 +16,6 @@ export class TimelineUI_v2 {
   private actionBars: Map<string, Phaser.GameObjects.Rectangle[]> = new Map();
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
-    const timestamp = Date.now();
-    console.log(`TimelineUI_v2 ${TimelineUI_v2.VERSION} initializing at ${timestamp}`);
     this.scene = scene;
     this.x = x;
     this.y = y;
@@ -36,7 +34,7 @@ export class TimelineUI_v2 {
       const timeText = this.scene.add.text(labelX, this.y + this.timelineHeight + 5, `${i}s`, {
         fontSize: '12px',
         color: '#888888',
-      }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(900);
+      }).setOrigin(0.5, 0).setDepth(900);
       
       this.container.add(timeText);
     }
@@ -46,7 +44,7 @@ export class TimelineUI_v2 {
       fontSize: '14px',
       color: '#ffffff',
       fontStyle: 'bold',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(900);
+    }).setOrigin(0.5).setDepth(900);
     
     this.container.add(title);
 
@@ -75,8 +73,6 @@ export class TimelineUI_v2 {
   update(currentTime: number, plannedActions: Map<string, PlayerAction>, gameState: GameState | null) {
     this.currentTime = currentTime;
     
-    console.log(`Timeline update: ${plannedActions.size} actions, gameState:`, gameState ? 'present' : 'null');
-    
     // Clear old action bars FIRST
     this.actionBars.forEach(bars => {
       bars.forEach(bar => bar.destroy());
@@ -95,13 +91,8 @@ export class TimelineUI_v2 {
     const unitSpacing = 8;
 
     plannedActions.forEach((action, unitId) => {
-      console.log(`Drawing action for ${unitId}:`, action.actionType);
-      
       const unit = gameState.units.find(u => u.id === unitId);
-      if (!unit) {
-        console.log(`  Unit ${unitId} not found!`);
-        return;
-      }
+      if (!unit) return;
 
       const yPos = this.y + 10 + unitIndex * (unitHeight + unitSpacing);
       
@@ -111,21 +102,18 @@ export class TimelineUI_v2 {
           Math.pow(action.targetPosition.x - unit.position.x, 2) +
           Math.pow(action.targetPosition.y - unit.position.y, 2)
         );
-        // UNIT_MOVE_SPEED is 5 units per tick, 60 ticks per second = 300 units/second
         const speedPerSecond = 5.0 * 60;
         const duration = distance / speedPerSecond;
         const width = (duration / this.maxTime) * this.timelineWidth;
         
-        console.log(`  Move bar: distance=${distance.toFixed(0)}, duration=${duration.toFixed(2)}s, width=${width.toFixed(0)}px`);
-        
         const bar = this.scene.add.rectangle(
-          0, // Relative to container
-          yPos - this.y, // Relative to container
-          Math.max(width, 20), // Minimum 20px width for visibility
+          0,
+          yPos - this.y,
+          Math.max(width, 20),
           unitHeight,
           0x00aaff,
-          1.0 // Full opacity for testing
-        ).setOrigin(0, 0).setScrollFactor(0).setDepth(902);
+          1.0
+        ).setOrigin(0, 0).setDepth(902);
         
         this.container.add(bar);
         
@@ -146,16 +134,14 @@ export class TimelineUI_v2 {
           const moveDuration = distance / speedPerSecond;
           const moveWidth = (moveDuration / this.maxTime) * this.timelineWidth;
           
-          console.log(`  Move bar (before shoot): distance=${distance.toFixed(0)}, duration=${moveDuration.toFixed(2)}s, width=${moveWidth.toFixed(0)}px`);
-          
           const moveBar = this.scene.add.rectangle(
-            0, // Starts at beginning
+            0,
             yPos - this.y,
             Math.max(moveWidth, 20),
             unitHeight,
             0x00aaff,
             1.0
-          ).setOrigin(0, 0).setScrollFactor(0).setDepth(902);
+          ).setOrigin(0, 0).setDepth(902);
           
           this.container.add(moveBar);
           
@@ -169,19 +155,17 @@ export class TimelineUI_v2 {
           this.calculateMoveTime(unit.position, action.targetPosition) : 0;
         
         const xPos = this.x + (shootTime / this.maxTime) * this.timelineWidth;
-        const shootDuration = 0.6; // Approximate shot duration
+        const shootDuration = 0.6;
         const width = (shootDuration / this.maxTime) * this.timelineWidth;
         
-        console.log(`  Shoot bar: shootTime=${shootTime.toFixed(2)}s, xPos=${xPos.toFixed(0)}, yPos=${yPos}, width=${width.toFixed(0)}px, height=${unitHeight}`);
-        
         const bar = this.scene.add.rectangle(
-          xPos - this.x, // Relative to container
-          yPos - this.y, // Relative to container
-          Math.max(width, 20), // Ensure minimum width
+          xPos - this.x,
+          yPos - this.y,
+          Math.max(width, 20),
           unitHeight,
           0xff0000,
-          1.0 // Full opacity for testing
-        ).setOrigin(0, 0).setScrollFactor(0).setDepth(902);
+          1.0
+        ).setOrigin(0, 0).setDepth(902);
         
         this.container.add(bar);
         
@@ -194,8 +178,6 @@ export class TimelineUI_v2 {
       unitIndex++;
     });
 
-    console.log(`Timeline: Drew ${unitIndex} action bars`);
-
     // Draw playhead on top
     const playheadX = this.x + (this.currentTime / this.maxTime) * this.timelineWidth;
     this.graphics.lineStyle(2, 0xffff00, 1);
@@ -207,17 +189,42 @@ export class TimelineUI_v2 {
       Math.pow(to.x - from.x, 2) +
       Math.pow(to.y - from.y, 2)
     );
-    // UNIT_MOVE_SPEED is 5 units per tick, and we have 60 ticks per second
-    // So speed in units per second is 5 * 60 = 300 units/second
-    const speedPerSecond = 5.0 * 60; // UNIT_MOVE_SPEED * TICK_RATE
-    const result = distance / speedPerSecond;
-    console.log(`[v2] calculateMoveTime: distance=${distance.toFixed(0)}, speed=${speedPerSecond}, result=${result.toFixed(2)}s`);
-    return result;
+    const speedPerSecond = 5.0 * 60;
+    return distance / speedPerSecond;
   }
 
   setVisible(visible: boolean) {
     this.container.setVisible(visible);
     this.graphics.setVisible(visible);
+  }
+
+  setScale(scale: number) {
+    this.container.setScale(scale);
+    this.graphics.setScale(scale);
+  }
+
+  getContainer(): Phaser.GameObjects.Container {
+    return this.container;
+  }
+
+  getGraphics(): Phaser.GameObjects.Graphics {
+    return this.graphics;
+  }
+
+  setPosition(x: number, y: number) {
+    // Update position
+    const deltaX = x - this.x;
+    const deltaY = y - this.y;
+    
+    this.x = x;
+    this.y = y;
+    
+    // Move container
+    this.container.setPosition(x, y);
+    
+    // Redraw graphics at new position
+    this.graphics.clear();
+    this.draw();
   }
 
   destroy() {

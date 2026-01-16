@@ -73,6 +73,13 @@ export interface PlayerAction {
   overwatchAngle?: number;
   // For combined actions
   moveBeforeAction?: boolean; // If true, move to targetPosition before executing main action
+  scheduledTime?: number; // Time in seconds when this action should execute (for timeline scheduling)
+}
+
+// New: Timeline-based action list for a unit
+export interface UnitActionPlan {
+  unitId: string;
+  actions: PlayerAction[]; // Ordered list of actions to execute
 }
 
 export interface MoveAction extends PlayerAction {

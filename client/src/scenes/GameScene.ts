@@ -10,7 +10,7 @@ export class GameScene extends Phaser.Scene {
   private camera!: Phaser.Cameras.Scene2D.Camera;
   private uiText!: Phaser.GameObjects.Text;
   private selectedUnit: string | null = null;
-  private plannedActions: Map<string, PlayerAction> = new Map();
+  private plannedActions: Map<string, PlayerAction[]> = new Map(); // Changed to array for multiple actions
   private movementPreviewGraphics!: Phaser.GameObjects.Graphics;
   private shootingPreviewGraphics!: Phaser.GameObjects.Graphics;
   private readyButton!: Phaser.GameObjects.Text;
@@ -19,6 +19,10 @@ export class GameScene extends Phaser.Scene {
   private hoveredUnit: string | null = null;
   private timeline: TimelineUI_v2 | null = null;
   private executionTime: number = 0;
+  private effectsGraphics!: Phaser.GameObjects.Graphics;
+  private previousUnitStates: Map<string, { magazineAmmo: number, health: number }> = new Map();
+  private pendingActionTime: number | null = null; // Time clicked on timeline
+  private pendingActionType: 'move' | 'shoot' | null = null; // What type of action to add
 
   constructor() {
     super({ key: 'GameScene' });
@@ -29,7 +33,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // Setup camera
+    // Setup main camera for game world
     this.camera = this.cameras.main;
     this.camera.setBackgroundColor('#1a1a1a');
     this.camera.setZoom(1);
@@ -48,7 +52,11 @@ export class GameScene extends Phaser.Scene {
     this.shootingPreviewGraphics = this.add.graphics();
     this.shootingPreviewGraphics.setDepth(6);
 
-    // UI Text
+    // Graphics for visual effects (muzzle flash, tracers)
+    this.effectsGraphics = this.add.graphics();
+    this.effectsGraphics.setDepth(100);
+
+    // UI Text - fixed to screen
     this.uiText = this.add.text(10, 10, 'Connecting...', {
       fontSize: '16px',
       color: '#ffffff',
@@ -56,7 +64,7 @@ export class GameScene extends Phaser.Scene {
       padding: { x: 10, y: 5 },
     }).setScrollFactor(0).setDepth(1000);
 
-    // Ready button
+    // Ready button - fixed to screen
     this.readyButton = this.add.text(this.cameras.main.width - 10, 10, 'READY', {
       fontSize: '24px',
       color: '#ffffff',
@@ -111,8 +119,9 @@ export class GameScene extends Phaser.Scene {
     // Camera controls
     this.setupCameraControls();
 
-    // Create timeline UI
-    this.timeline = new TimelineUI_v2(this, 340, 650);
+    // Create timeline UI (positioned at bottom of screen)
+    const timelineY = this.cameras.main.height - 150;
+    this.timeline = new TimelineUI_v2(this, 340, timelineY);
     this.timeline.setVisible(false);
 
     // Create test state for local testing
@@ -489,6 +498,17 @@ export class GameScene extends Phaser.Scene {
       const actions = Array.from(this.plannedActions.values());
       console.log('Executing actions:', actions);
       
+      // Initialize previous unit states for shot detection
+      this.previousUnitStates.clear();
+      if (this.currentState) {
+        this.currentState.units.forEach(unit => {
+          this.previousUnitStates.set(unit.id, {
+            magazineAmmo: unit.magazineAmmo,
+            health: unit.health
+          });
+        });
+      }
+      
       // Update UI to show execution phase
       if (this.currentState) {
         this.currentState.phase = GamePhase.EXECUTION;
@@ -510,6 +530,9 @@ export class GameScene extends Phaser.Scene {
 
         // Pass actions every tick so movement continues
         const newState = this.localSimulation.tick(actions);
+        
+        // Detect and visualize shooting
+        this.detectShooting(newState);
         
         if (tickCount % 10 === 0) { // Log every 10 ticks
           console.log(`Tick ${tickCount}: Unit positions:`, 
@@ -557,11 +580,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupCameraControls() {
+    // Zoom disabled for now - will fix later
+    /*
     this.input.on('wheel', (_pointer: any, _gameObjects: any, _deltaX: number, deltaY: number) => {
       const zoomAmount = deltaY > 0 ? -0.1 : 0.1;
       const newZoom = Phaser.Math.Clamp(this.camera.zoom + zoomAmount, 0.5, 2);
       this.camera.setZoom(newZoom);
     });
+    */
   }
 
   private handleRightClick(worldX: number, worldY: number) {
@@ -728,6 +754,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, _delta: number) {
+    // Update UI positions to stay on screen
+    this.updateUIPositions();
+    
     // Camera movement
     const cursors = this.input.keyboard?.createCursorKeys();
     const speed = 5;
@@ -744,5 +773,76 @@ export class GameScene extends Phaser.Scene {
     if (cursors?.down.isDown || this.input.keyboard?.addKey('S').isDown) {
       this.camera.scrollY += speed;
     }
+  }
+
+  private updateUIPositions() {
+    // Keep UI elements fixed to screen corners
+    const cam = this.cameras.main;
+    
+    // Top-left text
+    this.uiText.setPosition(10, 10);
+    
+    // Top-right ready button
+    this.readyButton.setPosition(cam.width - 10, 10);
+  }
+
+  private showMuzzleFlash(x: number, y: number) {
+    this.effectsGraphics.fillStyle(0xffff00, 1);
+    this.effectsGraphics.fillCircle(x, y, 15);
+    
+    this.time.delayedCall(100, () => {
+      this.effectsGraphics.clear();
+    });
+  }
+
+  private showBulletTracer(fromX: number, fromY: number, toX: number, toY: number, hit: boolean) {
+    this.effectsGraphics.lineStyle(3, hit ? 0xff0000 : 0xffaa00, 1);
+    this.effectsGraphics.lineBetween(fromX, fromY, toX, toY);
+    
+    if (hit) {
+      this.effectsGraphics.fillStyle(0xff0000, 0.8);
+      this.effectsGraphics.fillCircle(toX, toY, 15);
+    } else {
+      const missOffsetX = (Math.random() - 0.5) * 60;
+      const missOffsetY = (Math.random() - 0.5) * 60;
+      this.effectsGraphics.fillStyle(0x888888, 0.6);
+      this.effectsGraphics.fillCircle(toX + missOffsetX, toY + missOffsetY, 8);
+    }
+    
+    this.time.delayedCall(300, () => {
+      this.effectsGraphics.clear();
+    });
+  }
+
+  private detectShooting(newState: GameState) {
+    newState.units.forEach(unit => {
+      const prevState = this.previousUnitStates.get(unit.id);
+      if (prevState && prevState.magazineAmmo > unit.magazineAmmo) {
+        const shooter = unit;
+        
+        const target = newState.units.find(u => {
+          const prevTarget = this.previousUnitStates.get(u.id);
+          return prevTarget && prevTarget.health > u.health;
+        });
+        
+        this.showMuzzleFlash(shooter.position.x, shooter.position.y);
+        
+        if (target) {
+          const hit = this.previousUnitStates.get(target.id)!.health > target.health;
+          this.showBulletTracer(
+            shooter.position.x,
+            shooter.position.y,
+            target.position.x,
+            target.position.y,
+            hit
+          );
+        }
+      }
+      
+      this.previousUnitStates.set(unit.id, {
+        magazineAmmo: unit.magazineAmmo,
+        health: unit.health
+      });
+    });
   }
 }
