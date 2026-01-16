@@ -349,4 +349,11 @@ export class Simulation {
       });
     }
   }
+
+  resetUnitHasShot(unitId: string): void {
+    const unit = this.getUnit(unitId);
+    if (unit) {
+      unit.hasShot = false;
+    }
+  }
 }
