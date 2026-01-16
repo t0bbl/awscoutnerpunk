@@ -88,7 +88,6 @@ export class GameScene extends Phaser.Scene {
     
     // Set playerId for local testing if not connected
     this.playerId = network?.getPlayerId() || 'player1';
-    console.log('Player ID:', this.playerId);
 
     // Listen for game state updates
     if (network) {
@@ -97,7 +96,6 @@ export class GameScene extends Phaser.Scene {
       };
 
       network.onMatchStart = (matchId: string, state: GameState) => {
-        console.log('Match started:', matchId);
         this.handleGameStateUpdate(state);
       };
     }
@@ -160,8 +158,6 @@ export class GameScene extends Phaser.Scene {
         this.createTestUnit('p2_unit3', enemyPlayerId, { x: 1000, y: 600 }),
       ],
     };
-
-    console.log('Test state created with friendly units for:', friendlyPlayerId);
     
     // Enable local test mode
     this.isLocalTest = true;
@@ -364,11 +360,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleClick(worldX: number, worldY: number) {
-    console.log(`Click at (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`);
-    
     // Only allow planning during planning phase
     if (this.currentState?.phase !== GamePhase.PLANNING) {
-      console.log('Not in planning phase');
       return;
     }
 
@@ -384,7 +377,6 @@ export class GameScene extends Phaser.Scene {
 
       if (Phaser.Geom.Circle.Contains(bounds, worldX, worldY)) {
         clickedUnit = id;
-        console.log(`Hit unit: ${id} at (${container.x}, ${container.y})`);
       }
     });
 
@@ -393,9 +385,6 @@ export class GameScene extends Phaser.Scene {
       const unit = this.currentState?.units.find(u => u.id === clickedUnit);
       if (unit && unit.playerId === this.playerId) {
         this.selectedUnit = clickedUnit;
-        console.log('Selected unit:', clickedUnit);
-      } else {
-        console.log('Cannot select enemy unit');
       }
       
       // Force update to show selection
@@ -496,11 +485,8 @@ export class GameScene extends Phaser.Scene {
   private handleReadyButton() {
     if (this.currentState?.phase !== GamePhase.PLANNING) return;
 
-    console.log('Ready!');
-
     if (this.isLocalTest && this.localSimulation) {
       // Local test mode - run simulation locally
-      console.log('Running local simulation...');
       
       // Reset execution time and initialize action manager
       this.executionTime = 0;
@@ -622,16 +608,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleRightClick(worldX: number, worldY: number) {
-    console.log(`Right click at (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`);
-    
     // Only allow planning during planning phase
     if (this.currentState?.phase !== GamePhase.PLANNING) {
-      console.log('Not in planning phase');
       return;
     }
 
     if (!this.selectedUnit) {
-      console.log('No unit selected');
       return;
     }
 
@@ -672,11 +654,8 @@ export class GameScene extends Phaser.Scene {
             this.timeline.update(this.executionTime, this.getLastActionsForTimeline(), this.currentState);
           }
         }
-      } else {
-        console.log('Cannot shoot friendly unit');
       }
     } else {
-      console.log('Clicked empty space while unit selected');
       // Don't deselect - keep selection sticky
     }
   }

@@ -42,10 +42,12 @@ export class SeededRandom {
 export class Simulation {
   private state: GameState;
   private rng: SeededRandom;
+  private debug: boolean = false; // Set to true to enable debug logging
 
-  constructor(initialState: GameState) {
+  constructor(initialState: GameState, debug: boolean = false) {
     this.state = this.cloneState(initialState);
     this.rng = new SeededRandom(initialState.seed);
+    this.debug = debug;
   }
 
   tick(actions: PlayerAction[]): GameState {
@@ -149,7 +151,7 @@ export class Simulation {
       const weaponStats = WEAPON_STATS[unit.weapon];
       unit.isReloading = true;
       unit.reloadTimeRemaining = weaponStats.reloadTime;
-      console.log(`${unit.id} magazine empty, reloading...`);
+      if (this.debug) console.log(`${unit.id} magazine empty, reloading...`);
       return;
     }
 
@@ -181,20 +183,22 @@ export class Simulation {
 
     const weaponStats = WEAPON_STATS[unit.weapon];
     
-    console.log(`${unit.id} shoots ${target.id}${isMovingShot ? ' (moving shot)' : ''}: hit chance ${(hitChance * 100).toFixed(0)}%, bloom ${(unit.accuracyBloom * 100).toFixed(0)}%, ammo ${unit.magazineAmmo}/${weaponStats.magazineSize}`);
+    if (this.debug) {
+      console.log(`${unit.id} shoots ${target.id}${isMovingShot ? ' (moving shot)' : ''}: hit chance ${(hitChance * 100).toFixed(0)}%, bloom ${(unit.accuracyBloom * 100).toFixed(0)}%, ammo ${unit.magazineAmmo}/${weaponStats.magazineSize}`);
+    }
 
     if (roll <= hitChance) {
       const damage = weaponStats.damage;
       target.health -= damage;
-      console.log(`  HIT! ${damage} damage, target health: ${target.health}`);
+      if (this.debug) console.log(`  HIT! ${damage} damage, target health: ${target.health}`);
       
       if (target.health <= 0) {
         target.health = 0;
         target.isAlive = false;
-        console.log(`  ${target.id} KILLED`);
+        if (this.debug) console.log(`  ${target.id} KILLED`);
       }
     } else {
-      console.log(`  MISS`);
+      if (this.debug) console.log(`  MISS`);
     }
     
     // Update weapon state
@@ -294,7 +298,7 @@ export class Simulation {
           unit.isReloading = false;
           unit.magazineAmmo = weaponStats.magazineSize;
           unit.reloadTimeRemaining = 0;
-          console.log(`${unit.id} reload complete`);
+          if (this.debug) console.log(`${unit.id} reload complete`);
         }
       }
 
