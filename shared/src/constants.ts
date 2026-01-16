@@ -57,3 +57,7 @@ export const OVERWATCH_DEFAULT_ANGLE = 60; // degrees
 
 export const COVER_HALF_HEIGHT = 1.0;
 export const COVER_FULL_HEIGHT = 2.0;
+
+// Accuracy penalties
+export const MOVING_SHOOTER_PENALTY = 0.3; // 70% accuracy penalty when moving and shooting
+export const MOVING_TARGET_BONUS = 0.3; // 30% harder to hit moving targets

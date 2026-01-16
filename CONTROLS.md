@@ -49,19 +49,34 @@ Each unit shows:
 
 ## Planning Workflow
 
-**Movement:**
-1. Click a green (friendly) unit to select it
-2. Click where you want it to move
-3. Repeat for other units
-
-**Shooting:**
+**Movement Only:**
 1. Click a green unit to select it
-2. Right-click an enemy (red) unit to shoot
-3. Hover over enemies to see hit chance
+2. Click where you want it to move
+
+**Shooting Only:**
+1. Click a green unit to select it
+2. Right-click an enemy to shoot (stationary shot, high accuracy)
+
+**Move AND Shoot:**
+1. Click a green unit to select it
+2. Click where you want it to move
+3. Right-click an enemy to shoot after moving (moving shot, 70% accuracy penalty!)
+
+OR:
+1. Click a green unit to select it
+2. Right-click an enemy to shoot
+3. Click where to move before shooting
 
 **Execute:**
 4. Click READY when done planning
 5. Watch execution phase
+
+## Tips
+
+- Stationary shots are much more accurate
+- Moving shots have a 70% accuracy penalty
+- Moving targets are 30% harder to hit
+- You can combine movement and shooting for tactical positioning
 
 ## Tips
 

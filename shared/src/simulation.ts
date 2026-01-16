@@ -16,6 +16,8 @@ import {
   VISIBILITY_RANGE,
   WEAPON_STATS,
   UNIT_MAX_HEALTH,
+  MOVING_SHOOTER_PENALTY,
+  MOVING_TARGET_BONUS,
 } from './constants';
 
 export class SeededRandom {
@@ -49,6 +51,11 @@ export class Simulation {
     this.state.tick++;
     
     if (this.state.phase === GamePhase.EXECUTION) {
+      // Reset per-tick flags
+      this.state.units.forEach(u => {
+        u.isMoving = false;
+      });
+      
       this.executeActions(actions);
       this.updateVisibility();
       this.checkRoundEnd();
@@ -129,18 +136,49 @@ export class Simulation {
     const target = this.getUnit(action.targetUnitId);
     if (!target || !target.isAlive) return;
 
+    // Check if this is a move-and-shoot action
+    const isMovingShot = action.moveBeforeAction && action.targetPosition;
+    
+    // Only shoot once (check if we've already shot this round)
+    if (unit.hasShot) return;
+    
+    if (isMovingShot && action.targetPosition) {
+      // Check if we've reached the destination
+      const distance = this.distance(unit.position, action.targetPosition);
+      
+      if (distance > UNIT_MOVE_SPEED) {
+        // Still moving, don't shoot yet
+        const moveAction: MoveAction = {
+          unitId: unit.id,
+          actionType: ActionType.MOVE,
+          targetPosition: action.targetPosition,
+        };
+        this.processMove(unit, moveAction);
+        return;
+      }
+      // Reached destination, proceed with shot
+    }
+
     const hitChance = this.calculateHitChance(unit, target);
     const roll = this.rng.next();
+
+    console.log(`${unit.id} shoots ${target.id}${isMovingShot ? ' (moving shot)' : ''}: hit chance ${(hitChance * 100).toFixed(0)}%, roll ${(roll * 100).toFixed(0)}%`);
 
     if (roll <= hitChance) {
       const damage = WEAPON_STATS[unit.weapon].damage;
       target.health -= damage;
+      console.log(`  HIT! ${damage} damage, target health: ${target.health}`);
       
       if (target.health <= 0) {
         target.health = 0;
         target.isAlive = false;
+        console.log(`  ${target.id} KILLED`);
       }
+    } else {
+      console.log(`  MISS`);
     }
+    
+    unit.hasShot = true;
   }
 
   private processOverwatch(unit: Unit, action: OverwatchAction): void {
@@ -163,14 +201,14 @@ export class Simulation {
       accuracy *= Math.max(0.3, 1 - rangePenalty * 0.5);
     }
     
-    // Movement penalty for shooter
+    // Movement penalty for shooter (HEAVY penalty)
     if (shooter.isMoving) {
-      accuracy *= 0.5;
+      accuracy *= MOVING_SHOOTER_PENALTY; // 70% penalty
     }
     
     // Movement bonus for target
     if (target.isMoving) {
-      accuracy *= 0.7;
+      accuracy *= (1 - MOVING_TARGET_BONUS); // 30% harder to hit
     }
     
     return Math.max(0.05, Math.min(0.95, accuracy));
@@ -252,5 +290,12 @@ export class Simulation {
 
   setPhase(phase: GamePhase): void {
     this.state.phase = phase;
+    
+    // Reset per-round flags when entering execution
+    if (phase === GamePhase.EXECUTION) {
+      this.state.units.forEach(u => {
+        u.hasShot = false;
+      });
+    }
   }
 }

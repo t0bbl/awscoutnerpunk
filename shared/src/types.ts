@@ -54,6 +54,7 @@ export interface Unit {
   isMoving: boolean;
   visibleEnemyIds: string[];
   lastKnownEnemyPositions: Map<string, Vector2>;
+  hasShot: boolean; // Track if unit has shot this round
 }
 
 export interface PlayerAction {
@@ -64,6 +65,8 @@ export interface PlayerAction {
   grenadeType?: GrenadeType;
   overwatchDirection?: Vector2;
   overwatchAngle?: number;
+  // For combined actions
+  moveBeforeAction?: boolean; // If true, move to targetPosition before executing main action
 }
 
 export interface MoveAction extends PlayerAction {
@@ -74,6 +77,8 @@ export interface MoveAction extends PlayerAction {
 export interface ShootAction extends PlayerAction {
   actionType: ActionType.SHOOT;
   targetUnitId: string;
+  moveBeforeAction?: boolean;
+  targetPosition?: Vector2; // Where to move before shooting
 }
 
 export interface OverwatchAction extends PlayerAction {

@@ -56,5 +56,6 @@ export function createUnit(
     isMoving: false,
     visibleEnemyIds: [],
     lastKnownEnemyPositions: new Map(),
+    hasShot: false,
   };
 }

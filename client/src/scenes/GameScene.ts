@@ -167,6 +167,7 @@ export class GameScene extends Phaser.Scene {
       isMoving: false,
       visibleEnemyIds: [],
       lastKnownEnemyPositions: new Map(),
+      hasShot: false,
     };
   }
 
@@ -356,21 +357,31 @@ export class GameScene extends Phaser.Scene {
         this.updateUI(this.currentState);
       }
     } else {
-      // Clicked on ground - move selected unit
+      // Clicked on ground
       if (this.selectedUnit && this.currentState) {
         const unit = this.currentState.units.find(u => u.id === this.selectedUnit);
         if (unit && unit.playerId === this.playerId) {
-          console.log(`Planning move for ${this.selectedUnit} to (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`);
+          const existingAction = this.plannedActions.get(this.selectedUnit);
           
-          // Create move action
-          const action: PlayerAction = {
-            unitId: this.selectedUnit,
-            actionType: ActionType.MOVE,
-            targetPosition: { x: worldX, y: worldY },
-          };
+          // If unit already has a shoot action, add movement to it
+          if (existingAction && existingAction.actionType === ActionType.SHOOT) {
+            console.log(`Adding movement to shoot action for ${this.selectedUnit}`);
+            existingAction.moveBeforeAction = true;
+            existingAction.targetPosition = { x: worldX, y: worldY };
+            this.plannedActions.set(this.selectedUnit, existingAction);
+          } else {
+            // Create new move action
+            console.log(`Planning move for ${this.selectedUnit} to (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`);
+            const action: PlayerAction = {
+              unitId: this.selectedUnit,
+              actionType: ActionType.MOVE,
+              targetPosition: { x: worldX, y: worldY },
+            };
+            this.plannedActions.set(this.selectedUnit, action);
+          }
           
-          this.plannedActions.set(this.selectedUnit, action);
           this.drawMovementPreviews();
+          this.drawShootingPreviews();
         }
       }
       
@@ -391,8 +402,14 @@ export class GameScene extends Phaser.Scene {
 
     // Draw planned movements
     this.plannedActions.forEach((action, unitId) => {
+      // Show movement for MOVE actions or SHOOT actions with moveBeforeAction
+      const hasMovement = (action.actionType === ActionType.MOVE) || 
+                          (action.moveBeforeAction && action.targetPosition);
+      
+      if (!hasMovement || !action.targetPosition) return;
+
       const unit = this.currentState!.units.find(u => u.id === unitId);
-      if (!unit || action.actionType !== ActionType.MOVE || !action.targetPosition) return;
+      if (!unit) return;
 
       // Draw line from unit to target
       this.movementPreviewGraphics.lineStyle(2, 0x00aaff, 0.8);
@@ -444,12 +461,12 @@ export class GameScene extends Phaser.Scene {
           return;
         }
 
-        // Execute one tick with all actions
+        // Pass actions every tick so movement continues
         const newState = this.localSimulation.tick(actions);
         
         if (tickCount % 10 === 0) { // Log every 10 ticks
           console.log(`Tick ${tickCount}: Unit positions:`, 
-            newState.units.map(u => ({ id: u.id, x: u.position.x.toFixed(0), y: u.position.y.toFixed(0), moving: u.isMoving }))
+            newState.units.map(u => ({ id: u.id, x: u.position.x.toFixed(0), y: u.position.y.toFixed(0), hp: u.health, alive: u.isAlive }))
           );
         }
         
@@ -528,15 +545,20 @@ export class GameScene extends Phaser.Scene {
       if (shooter && target && shooter.playerId !== target.playerId) {
         console.log(`Planning shoot: ${this.selectedUnit} -> ${clickedUnit}`);
         
-        // Create shoot action
+        const existingAction = this.plannedActions.get(this.selectedUnit);
+        
+        // Create shoot action, preserving any existing movement
         const action: PlayerAction = {
           unitId: this.selectedUnit,
           actionType: ActionType.SHOOT,
           targetUnitId: clickedUnit,
+          moveBeforeAction: existingAction?.actionType === ActionType.MOVE,
+          targetPosition: existingAction?.targetPosition,
         };
         
         this.plannedActions.set(this.selectedUnit, action);
         this.drawShootingPreviews();
+        this.drawMovementPreviews();
         
         if (this.currentState) {
           this.updateUnits(this.currentState);
