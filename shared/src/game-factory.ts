@@ -7,7 +7,7 @@ import {
   UnitStance,
   GamePhase,
 } from './types';
-import { UNIT_MAX_HEALTH } from './constants';
+import { UNIT_MAX_HEALTH, WEAPON_STATS } from './constants';
 
 export function createInitialGameState(
   player1Id: string,
@@ -42,6 +42,8 @@ export function createUnit(
   position: Vector2,
   weapon: WeaponType
 ): Unit {
+  const weaponStats = WEAPON_STATS[weapon];
+  
   return {
     id,
     playerId,
@@ -57,5 +59,10 @@ export function createUnit(
     visibleEnemyIds: [],
     lastKnownEnemyPositions: new Map(),
     hasShot: false,
+    magazineAmmo: weaponStats.magazineSize,
+    isReloading: false,
+    reloadTimeRemaining: 0,
+    accuracyBloom: 0,
+    lastShotTime: 0,
   };
 }

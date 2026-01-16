@@ -18,6 +18,7 @@ import {
   UNIT_MAX_HEALTH,
   MOVING_SHOOTER_PENALTY,
   MOVING_TARGET_BONUS,
+  TICK_DURATION_S,
 } from './constants';
 
 export class SeededRandom {
@@ -51,6 +52,9 @@ export class Simulation {
     this.state.tick++;
     
     if (this.state.phase === GamePhase.EXECUTION) {
+      // Update weapon states (bloom recovery, reload)
+      this.updateWeaponStates();
+      
       // Reset per-tick flags
       this.state.units.forEach(u => {
         u.isMoving = false;
@@ -136,6 +140,19 @@ export class Simulation {
     const target = this.getUnit(action.targetUnitId);
     if (!target || !target.isAlive) return;
 
+    // Cannot shoot while reloading
+    if (unit.isReloading) return;
+
+    // Check if magazine is empty
+    if (unit.magazineAmmo <= 0) {
+      // Start reload
+      const weaponStats = WEAPON_STATS[unit.weapon];
+      unit.isReloading = true;
+      unit.reloadTimeRemaining = weaponStats.reloadTime;
+      console.log(`${unit.id} magazine empty, reloading...`);
+      return;
+    }
+
     // Check if this is a move-and-shoot action
     const isMovingShot = action.moveBeforeAction && action.targetPosition;
     
@@ -162,10 +179,12 @@ export class Simulation {
     const hitChance = this.calculateHitChance(unit, target);
     const roll = this.rng.next();
 
-    console.log(`${unit.id} shoots ${target.id}${isMovingShot ? ' (moving shot)' : ''}: hit chance ${(hitChance * 100).toFixed(0)}%, roll ${(roll * 100).toFixed(0)}%`);
+    const weaponStats = WEAPON_STATS[unit.weapon];
+    
+    console.log(`${unit.id} shoots ${target.id}${isMovingShot ? ' (moving shot)' : ''}: hit chance ${(hitChance * 100).toFixed(0)}%, bloom ${(unit.accuracyBloom * 100).toFixed(0)}%, ammo ${unit.magazineAmmo}/${weaponStats.magazineSize}`);
 
     if (roll <= hitChance) {
-      const damage = WEAPON_STATS[unit.weapon].damage;
+      const damage = weaponStats.damage;
       target.health -= damage;
       console.log(`  HIT! ${damage} damage, target health: ${target.health}`);
       
@@ -178,6 +197,10 @@ export class Simulation {
       console.log(`  MISS`);
     }
     
+    // Update weapon state
+    unit.magazineAmmo--;
+    unit.accuracyBloom = Math.min(1.0, unit.accuracyBloom + weaponStats.bloomPerShot);
+    unit.lastShotTime = this.state.tick;
     unit.hasShot = true;
   }
 
@@ -193,6 +216,9 @@ export class Simulation {
     
     // Base accuracy from weapon
     let accuracy = weaponStats.accuracy;
+    
+    // Apply accuracy bloom (post-shot inaccuracy)
+    accuracy *= (1 - shooter.accuracyBloom);
     
     // Distance penalty
     const optimalRange = weaponStats.optimalRange;
@@ -253,6 +279,31 @@ export class Simulation {
     if (alivePlayers.size <= 1) {
       this.state.phase = GamePhase.ROUND_END;
     }
+  }
+
+  private updateWeaponStates(): void {
+    this.state.units.forEach(unit => {
+      if (!unit.isAlive) return;
+
+      const weaponStats = WEAPON_STATS[unit.weapon];
+
+      // Handle reload
+      if (unit.isReloading) {
+        unit.reloadTimeRemaining -= TICK_DURATION_S;
+        if (unit.reloadTimeRemaining <= 0) {
+          unit.isReloading = false;
+          unit.magazineAmmo = weaponStats.magazineSize;
+          unit.reloadTimeRemaining = 0;
+          console.log(`${unit.id} reload complete`);
+        }
+      }
+
+      // Recover accuracy bloom
+      if (unit.accuracyBloom > 0) {
+        const recovery = weaponStats.bloomRecoveryRate * TICK_DURATION_S;
+        unit.accuracyBloom = Math.max(0, unit.accuracyBloom - recovery);
+      }
+    });
   }
 
   private getUnit(unitId: string): Unit | undefined {

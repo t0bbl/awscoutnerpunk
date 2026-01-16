@@ -55,6 +55,12 @@ export interface Unit {
   visibleEnemyIds: string[];
   lastKnownEnemyPositions: Map<string, Vector2>;
   hasShot: boolean; // Track if unit has shot this round
+  // Weapon state
+  magazineAmmo: number; // Current rounds in magazine
+  isReloading: boolean;
+  reloadTimeRemaining: number; // Seconds
+  accuracyBloom: number; // Current accuracy penalty (0.0 - 1.0)
+  lastShotTime: number; // Tick when last shot was fired
 }
 
 export interface PlayerAction {

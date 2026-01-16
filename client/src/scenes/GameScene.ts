@@ -31,6 +31,9 @@ export class GameScene extends Phaser.Scene {
     this.camera.setBackgroundColor('#1a1a1a');
     this.camera.setZoom(1);
 
+    // Disable right-click context menu
+    this.input.mouse?.disableContextMenu();
+
     // Draw ground grid
     this.drawGrid();
 
@@ -153,12 +156,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createTestUnit(id: string, playerId: string, pos: Vector2): Unit {
+    const weapon = 'USP' as any;
+    const weaponStats = WEAPON_STATS[weapon];
+    
     return {
       id,
       playerId,
       position: pos,
       health: 100,
-      weapon: 'USP' as any,
+      weapon,
       hasKevlar: false,
       hasHelmet: false,
       isAlive: true,
@@ -168,6 +174,11 @@ export class GameScene extends Phaser.Scene {
       visibleEnemyIds: [],
       lastKnownEnemyPositions: new Map(),
       hasShot: false,
+      magazineAmmo: weaponStats.magazineSize,
+      isReloading: false,
+      reloadTimeRemaining: 0,
+      accuracyBloom: 0,
+      lastShotTime: 0,
     };
   }
 
@@ -297,7 +308,13 @@ export class GameScene extends Phaser.Scene {
     if (this.selectedUnit) {
       const unit = state.units.find(u => u.id === this.selectedUnit);
       if (unit) {
-        lines.push(`Selected: ${this.selectedUnit} (HP: ${unit.health})`);
+        const weaponStats = WEAPON_STATS[unit.weapon];
+        const bloomPercent = (unit.accuracyBloom * 100).toFixed(0);
+        const reloadStatus = unit.isReloading ? ` RELOADING ${unit.reloadTimeRemaining.toFixed(1)}s` : '';
+        
+        lines.push(`Selected: ${this.selectedUnit}`);
+        lines.push(`HP: ${unit.health} | Ammo: ${unit.magazineAmmo}/${weaponStats.magazineSize}${reloadStatus}`);
+        lines.push(`Bloom: ${bloomPercent}% | Accuracy: ${((1 - unit.accuracyBloom) * 100).toFixed(0)}%`);
       }
     }
 
