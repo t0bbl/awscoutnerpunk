@@ -5,8 +5,8 @@ export const TICK_DURATION_MS = 1000 / TICK_RATE;
 export const TICK_DURATION_S = 1 / TICK_RATE; // For time-based calculations
 
 export const PLANNING_PHASE_DURATION_MS = 30000; // 30 seconds
-export const EXECUTION_PHASE_DURATION_S = 5.0; // 5 seconds of execution
-export const EXECUTION_PHASE_TICKS = EXECUTION_PHASE_DURATION_S * TICK_RATE; // 300 ticks
+export const EXECUTION_PHASE_DURATION_S = 3.0; // 3 seconds of execution
+export const EXECUTION_PHASE_TICKS = EXECUTION_PHASE_DURATION_S * TICK_RATE; // 180 ticks
 
 export const WEAPON_STATS = {
   USP: {

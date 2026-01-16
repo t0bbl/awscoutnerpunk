@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { GameState, Unit, Vector2, PlayerAction } from 'shared';
-import { GamePhase, ActionType, Simulation, WEAPON_STATS, TICK_DURATION_S, WeaponType } from 'shared';
+import { GamePhase, ActionType, Simulation, WEAPON_STATS, TICK_DURATION_S, WeaponType, EXECUTION_PHASE_TICKS } from 'shared';
 import { TimelineUI_v2 } from '../ui/TimelineUI';
 
 export class GameScene extends Phaser.Scene {
@@ -495,9 +495,9 @@ export class GameScene extends Phaser.Scene {
         this.updateUI(this.currentState);
       }
       
-      // Run simulation for a few ticks
+      // Run simulation for execution phase duration
       let tickCount = 0;
-      const maxTicks = 120; // 2 seconds at 60 ticks/sec
+      const maxTicks = EXECUTION_PHASE_TICKS; // 3 seconds at 60 ticks/sec = 180 ticks
       
       const tickInterval = setInterval(() => {
         if (!this.localSimulation) {
@@ -534,7 +534,7 @@ export class GameScene extends Phaser.Scene {
           newState.phase = GamePhase.PLANNING;
           this.handleGameStateUpdate(newState);
         }
-      }, 16); // ~60 ticks per second
+      }, 1000 / 60); // Exactly 60 ticks per second (16.666ms)
       
     } else {
       // Online mode - send to server

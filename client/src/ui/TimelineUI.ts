@@ -30,9 +30,9 @@ export class TimelineUI_v2 {
     this.graphics.setScrollFactor(0);
     this.graphics.setDepth(900);
 
-    // Add static labels once
-    for (let i = 0; i <= 6; i++) {
-      const labelX = this.x + (i / 6) * this.timelineWidth;
+    // Add static labels once (0s, 1s, 2s, 3s)
+    for (let i = 0; i <= 3; i++) {
+      const labelX = this.x + (i / 3) * this.timelineWidth;
       const timeText = this.scene.add.text(labelX, this.y + this.timelineHeight + 5, `${i}s`, {
         fontSize: '12px',
         color: '#888888',
@@ -62,8 +62,8 @@ export class TimelineUI_v2 {
     this.graphics.lineStyle(2, 0xffffff, 0.5);
     this.graphics.strokeRect(this.x, this.y, this.timelineWidth, this.timelineHeight);
 
-    // Time markers
-    const numMarkers = 6; // 0s, 1s, 2s, 3s, 4s, 5s
+    // Time markers (0s, 1s, 2s, 3s)
+    const numMarkers = 3;
     this.graphics.lineStyle(1, 0x666666, 0.5);
     
     for (let i = 0; i <= numMarkers; i++) {
