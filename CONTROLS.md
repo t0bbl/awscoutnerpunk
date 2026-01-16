@@ -10,9 +10,17 @@
 - **W/A/S/D** or **Arrow Keys**: Pan camera
 - **Mouse Wheel**: Zoom in/out
 
-### Unit Control
-- **Left Click on Unit**: Select unit (yellow border appears)
-- **Left Click on Ground**: Move selected unit (not yet implemented)
+### Planning Phase
+1. **Left Click on Your Unit**: Select unit (yellow border appears)
+2. **Left Click on Ground**: Set movement destination for selected unit
+   - Blue line shows planned path
+   - Blue circle shows target position
+   - Unit border turns blue when action is planned
+3. **READY Button** (top-right): Execute all planned actions
+
+### Execution Phase
+- Watch units execute their planned actions
+- No input allowed during execution
 
 ## UI Display
 
@@ -20,19 +28,32 @@ Top-left corner shows:
 - Current phase (PLANNING / EXECUTION / ROUND END)
 - Round number and tick count
 - Number of alive units
+- Number of planned actions
 - Selected unit ID (if any)
 
 ## Unit Display
 
 Each unit shows:
 - **Circle color**: Green (friendly) or Red (enemy)
+- **Border color**: 
+  - White (normal)
+  - Yellow (selected)
+  - Blue (has planned action)
 - **Health bar**: Above unit, color-coded by health
 - **Direction arrow**: Points in movement direction
 - **Unit ID**: Text inside circle
 
-## Development Tips
+## Planning Workflow
 
-1. Use "Local Test" to see units without needing multiplayer
-2. Click units to select them and see selection highlight
-3. Use camera controls to explore the map
-4. Watch the UI for game state updates
+1. Click a green (friendly) unit to select it
+2. Click where you want it to move
+3. Repeat for other units
+4. Click READY when done planning
+5. Watch execution phase
+
+## Tips
+
+- You can only select your own units (green)
+- Clicking enemy units does nothing
+- You can change a unit's destination by selecting it again and clicking a new location
+- The "Planned Actions" counter shows how many units have orders

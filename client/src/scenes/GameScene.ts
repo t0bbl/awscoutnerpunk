@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import type { GameState, Unit, Vector2 } from 'shared';
-import { GamePhase } from 'shared';
+import type { GameState, Unit, Vector2, PlayerAction } from 'shared';
+import { GamePhase, ActionType, Simulation } from 'shared';
 
 export class GameScene extends Phaser.Scene {
   private unitSprites: Map<string, Phaser.GameObjects.Container> = new Map();
@@ -9,6 +9,11 @@ export class GameScene extends Phaser.Scene {
   private camera!: Phaser.Cameras.Scene2D.Camera;
   private uiText!: Phaser.GameObjects.Text;
   private selectedUnit: string | null = null;
+  private plannedActions: Map<string, PlayerAction> = new Map();
+  private movementPreviewGraphics!: Phaser.GameObjects.Graphics;
+  private readyButton!: Phaser.GameObjects.Text;
+  private isLocalTest: boolean = false;
+  private localSimulation: Simulation | null = null;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -27,6 +32,10 @@ export class GameScene extends Phaser.Scene {
     // Draw ground grid
     this.drawGrid();
 
+    // Graphics for movement preview
+    this.movementPreviewGraphics = this.add.graphics();
+    this.movementPreviewGraphics.setDepth(5);
+
     // UI Text
     this.uiText = this.add.text(10, 10, 'Connecting...', {
       fontSize: '16px',
@@ -35,9 +44,32 @@ export class GameScene extends Phaser.Scene {
       padding: { x: 10, y: 5 },
     }).setScrollFactor(0).setDepth(1000);
 
+    // Ready button
+    this.readyButton = this.add.text(this.cameras.main.width - 10, 10, 'READY', {
+      fontSize: '24px',
+      color: '#ffffff',
+      backgroundColor: '#00aa00',
+      padding: { x: 20, y: 10 },
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(1000).setInteractive();
+
+    this.readyButton.on('pointerover', () => {
+      this.readyButton.setBackgroundColor('#00ff00');
+    });
+
+    this.readyButton.on('pointerout', () => {
+      this.readyButton.setBackgroundColor('#00aa00');
+    });
+
+    this.readyButton.on('pointerdown', () => {
+      this.handleReadyButton();
+    });
+
     // Get network manager
     const network = (window as any).network;
-    this.playerId = network?.getPlayerId();
+    
+    // Set playerId for local testing if not connected
+    this.playerId = network?.getPlayerId() || 'player1';
+    console.log('Player ID:', this.playerId);
 
     // Listen for game state updates
     if (network) {
@@ -78,25 +110,35 @@ export class GameScene extends Phaser.Scene {
 
   private createTestState() {
     // Create a test state for local development
+    // Use actual playerId for friendly units
+    const friendlyPlayerId = this.playerId || 'player1';
+    const enemyPlayerId = 'enemy_ai';
+
     const testState: GameState = {
       tick: 0,
       round: 1,
       phase: GamePhase.PLANNING,
       seed: 12345,
       units: [
-        this.createTestUnit('p1_unit1', 'player1', { x: 100, y: 100 }, '#00ff00'),
-        this.createTestUnit('p1_unit2', 'player1', { x: 150, y: 100 }, '#00ff00'),
-        this.createTestUnit('p1_unit3', 'player1', { x: 200, y: 100 }, '#00ff00'),
-        this.createTestUnit('p2_unit1', 'player2', { x: 1100, y: 600 }, '#ff0000'),
-        this.createTestUnit('p2_unit2', 'player2', { x: 1050, y: 600 }, '#ff0000'),
-        this.createTestUnit('p2_unit3', 'player2', { x: 1000, y: 600 }, '#ff0000'),
+        this.createTestUnit('p1_unit1', friendlyPlayerId, { x: 100, y: 100 }),
+        this.createTestUnit('p1_unit2', friendlyPlayerId, { x: 150, y: 100 }),
+        this.createTestUnit('p1_unit3', friendlyPlayerId, { x: 200, y: 100 }),
+        this.createTestUnit('p2_unit1', enemyPlayerId, { x: 1100, y: 600 }),
+        this.createTestUnit('p2_unit2', enemyPlayerId, { x: 1050, y: 600 }),
+        this.createTestUnit('p2_unit3', enemyPlayerId, { x: 1000, y: 600 }),
       ],
     };
 
+    console.log('Test state created with friendly units for:', friendlyPlayerId);
+    
+    // Enable local test mode
+    this.isLocalTest = true;
+    this.localSimulation = new Simulation(testState);
+    
     this.handleGameStateUpdate(testState);
   }
 
-  private createTestUnit(id: string, playerId: string, pos: Vector2, color: string): Unit {
+  private createTestUnit(id: string, playerId: string, pos: Vector2): Unit {
     return {
       id,
       playerId,
@@ -118,6 +160,7 @@ export class GameScene extends Phaser.Scene {
     this.currentState = state;
     this.updateUnits(state);
     this.updateUI(state);
+    this.drawMovementPreviews();
   }
 
   private updateUnits(state: GameState) {
@@ -176,6 +219,7 @@ export class GameScene extends Phaser.Scene {
     container.setData('body', body);
     container.setData('healthBar', healthBar);
     container.setData('direction', direction);
+    container.setData('unitId', unit.id);
     container.setInteractive(new Phaser.Geom.Circle(0, 0, 15), Phaser.Geom.Circle.Contains);
 
     return container;
@@ -213,6 +257,8 @@ export class GameScene extends Phaser.Scene {
     const body = container.getData('body') as Phaser.GameObjects.Arc;
     if (this.selectedUnit === unit.id) {
       body.setStrokeStyle(3, 0xffff00);
+    } else if (this.plannedActions.has(unit.id)) {
+      body.setStrokeStyle(3, 0x00aaff); // Blue for units with planned actions
     } else {
       body.setStrokeStyle(2, 0xffffff);
     }
@@ -223,18 +269,29 @@ export class GameScene extends Phaser.Scene {
                       state.phase === GamePhase.EXECUTION ? 'EXECUTION' : 'ROUND END';
     
     const aliveUnits = state.units.filter(u => u.isAlive).length;
+    const plannedCount = this.plannedActions.size;
     
     this.uiText.setText([
       `Phase: ${phaseText}`,
       `Round: ${state.round} | Tick: ${state.tick}`,
       `Units Alive: ${aliveUnits}`,
+      `Planned Actions: ${plannedCount}`,
       this.selectedUnit ? `Selected: ${this.selectedUnit}` : '',
     ].filter(Boolean).join('\n'));
+
+    // Show/hide ready button based on phase
+    this.readyButton.setVisible(state.phase === GamePhase.PLANNING);
   }
 
   private handleClick(worldX: number, worldY: number) {
     console.log(`Click at (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`);
     
+    // Only allow planning during planning phase
+    if (this.currentState?.phase !== GamePhase.PLANNING) {
+      console.log('Not in planning phase');
+      return;
+    }
+
     // Check if clicked on a unit
     let clickedUnit: string | null = null;
 
@@ -252,8 +309,14 @@ export class GameScene extends Phaser.Scene {
     });
 
     if (clickedUnit) {
-      this.selectedUnit = clickedUnit;
-      console.log('Selected unit:', clickedUnit);
+      // Check if it's our unit
+      const unit = this.currentState?.units.find(u => u.id === clickedUnit);
+      if (unit && unit.playerId === this.playerId) {
+        this.selectedUnit = clickedUnit;
+        console.log('Selected unit:', clickedUnit);
+      } else {
+        console.log('Cannot select enemy unit');
+      }
       
       // Force update to show selection
       if (this.currentState) {
@@ -263,9 +326,22 @@ export class GameScene extends Phaser.Scene {
     } else {
       // Clicked on ground - move selected unit
       if (this.selectedUnit && this.currentState) {
-        console.log(`Move ${this.selectedUnit} to (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`);
-        // TODO: Send move action to server
+        const unit = this.currentState.units.find(u => u.id === this.selectedUnit);
+        if (unit && unit.playerId === this.playerId) {
+          console.log(`Planning move for ${this.selectedUnit} to (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`);
+          
+          // Create move action
+          const action: PlayerAction = {
+            unitId: this.selectedUnit,
+            actionType: ActionType.MOVE,
+            targetPosition: { x: worldX, y: worldY },
+          };
+          
+          this.plannedActions.set(this.selectedUnit, action);
+          this.drawMovementPreviews();
+        }
       }
+      
       this.selectedUnit = null;
       
       // Force update to clear selection
@@ -276,23 +352,120 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private setupCameraControls() {
-    const cursors = this.input.keyboard?.createCursorKeys();
-    
-    // WASD controls
-    const keyW = this.input.keyboard?.addKey('W');
-    const keyA = this.input.keyboard?.addKey('A');
-    const keyS = this.input.keyboard?.addKey('S');
-    const keyD = this.input.keyboard?.addKey('D');
+  private drawMovementPreviews() {
+    this.movementPreviewGraphics.clear();
 
-    this.input.on('wheel', (pointer: any, gameObjects: any, deltaX: number, deltaY: number) => {
+    if (!this.currentState) return;
+
+    // Draw planned movements
+    this.plannedActions.forEach((action, unitId) => {
+      const unit = this.currentState!.units.find(u => u.id === unitId);
+      if (!unit || action.actionType !== ActionType.MOVE || !action.targetPosition) return;
+
+      // Draw line from unit to target
+      this.movementPreviewGraphics.lineStyle(2, 0x00aaff, 0.8);
+      this.movementPreviewGraphics.lineBetween(
+        unit.position.x,
+        unit.position.y,
+        action.targetPosition.x,
+        action.targetPosition.y
+      );
+
+      // Draw target marker
+      this.movementPreviewGraphics.fillStyle(0x00aaff, 0.5);
+      this.movementPreviewGraphics.fillCircle(action.targetPosition.x, action.targetPosition.y, 8);
+      
+      this.movementPreviewGraphics.lineStyle(2, 0x00aaff, 1);
+      this.movementPreviewGraphics.strokeCircle(action.targetPosition.x, action.targetPosition.y, 8);
+    });
+  }
+
+  private handleReadyButton() {
+    if (this.currentState?.phase !== GamePhase.PLANNING) return;
+
+    console.log('Ready! Planned actions:', this.plannedActions);
+
+    if (this.isLocalTest && this.localSimulation) {
+      // Local test mode - run simulation locally
+      console.log('Running local simulation...');
+      
+      // Switch simulation to execution phase
+      this.localSimulation.setPhase(GamePhase.EXECUTION);
+      
+      // Collect all actions
+      const actions = Array.from(this.plannedActions.values());
+      console.log('Executing actions:', actions);
+      
+      // Update UI to show execution phase
+      if (this.currentState) {
+        this.currentState.phase = GamePhase.EXECUTION;
+        this.updateUI(this.currentState);
+      }
+      
+      // Run simulation for a few ticks
+      let tickCount = 0;
+      const maxTicks = 120; // 2 seconds at 60 ticks/sec
+      
+      const tickInterval = setInterval(() => {
+        if (!this.localSimulation) {
+          clearInterval(tickInterval);
+          return;
+        }
+
+        // Execute one tick with all actions
+        const newState = this.localSimulation.tick(actions);
+        
+        if (tickCount % 10 === 0) { // Log every 10 ticks
+          console.log(`Tick ${tickCount}: Unit positions:`, 
+            newState.units.map(u => ({ id: u.id, x: u.position.x.toFixed(0), y: u.position.y.toFixed(0), moving: u.isMoving }))
+          );
+        }
+        
+        this.handleGameStateUpdate(newState);
+        
+        tickCount++;
+        
+        // Stop after max ticks or if phase changed
+        if (tickCount >= maxTicks || newState.phase !== GamePhase.EXECUTION) {
+          clearInterval(tickInterval);
+          console.log('Execution complete at tick', tickCount);
+          
+          // Return to planning phase
+          this.localSimulation.setPhase(GamePhase.PLANNING);
+          newState.phase = GamePhase.PLANNING;
+          this.handleGameStateUpdate(newState);
+        }
+      }, 16); // ~60 ticks per second
+      
+    } else {
+      // Online mode - send to server
+      const network = (window as any).network;
+      if (network) {
+        this.plannedActions.forEach(action => {
+          network.sendAction(action);
+        });
+        network.sendReady();
+      }
+    }
+
+    // Clear planned actions
+    this.plannedActions.clear();
+    this.drawMovementPreviews();
+    
+    if (this.currentState) {
+      this.updateUnits(this.currentState);
+    }
+  }
+
+  private setupCameraControls() {
+    this.input.on('wheel', (_pointer: any, _gameObjects: any, _deltaX: number, deltaY: number) => {
       const zoomAmount = deltaY > 0 ? -0.1 : 0.1;
       const newZoom = Phaser.Math.Clamp(this.camera.zoom + zoomAmount, 0.5, 2);
       this.camera.setZoom(newZoom);
     });
   }
 
-  update(time: number, delta: number) {
+  update(_time: number, _delta: number) {
     // Camera movement
     const cursors = this.input.keyboard?.createCursorKeys();
     const speed = 5;

@@ -249,4 +249,8 @@ export class Simulation {
   getState(): GameState {
     return this.cloneState(this.state);
   }
+
+  setPhase(phase: GamePhase): void {
+    this.state.phase = phase;
+  }
 }
